@@ -6,6 +6,7 @@ import morgan from 'morgan';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import DbConnect from './config/connectDB.js';
+import userRoute from './routes/userRoute.js';
 
 dotenv.config();
 DbConnect();
@@ -30,12 +31,14 @@ app.use(express.json({limit: process.env.UPLOAD_LIMIT}));
 app.use(express.urlencoded({extended:true, limit: process.env.UPLOAD_LIMIT}));
 
 //Logging
-app.use(morgan("combined"));
+app.use(morgan("dev"));
 
 //Routes
 app.get('/', (req, res) => {
   res.send('AI Content CMS API is running');
 });
+
+app.use('/api/users', userRoute);
 
 // Start server
 const PORT = process.env.PORT || 5050;
