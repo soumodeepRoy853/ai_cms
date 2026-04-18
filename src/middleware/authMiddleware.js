@@ -1,15 +1,59 @@
-import jwt from 'jsonwebtoken';
+import jwt from "jsonwebtoken";
+import User from "../models/userModel.js";
+import { createError } from "../utils/httpErrors.js";
 
-const authMiddleware = (req, res, next) => {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
-    if(!token) {
-        return res.status(401).json({success: false, message: 'No token, authorization denied'});
-    }
+const getTokenFromHeader = (req) => {
+    const header = req.headers.authorization;
+    if (!header || !header.startsWith("Bearer ")) return null;
+    return header.split(" ")[1];
+};
+
+const hydrateUser = async (userId) => {
+    if (!userId) return null;
+    return User.findById(userId).select("-password");
+};
+
+export const requireAuth = async (req, res, next) => {
     try {
-       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-       req.user = decoded.user;
-       next();
+        const token = getTokenFromHeader(req);
+        if (token) {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            req.user = await hydrateUser(decoded.id || decoded.userId);
+        } else if (req.session?.userId) {
+            req.user = await hydrateUser(req.session.userId);
+        }
+
+        if (!req.user) {
+            return next(createError(401, "Not authorized"));
+        }
+
+        next();
     } catch (err) {
-         res.status(500).json({ message: "Invalid token" });
+        next(createError(401, "Not authorized"));
     }
+};
+
+export const optionalAuth = async (req, res, next) => {
+    try {
+        const token = getTokenFromHeader(req);
+        if (token) {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            req.user = await hydrateUser(decoded.id || decoded.userId);
+        } else if (req.session?.userId) {
+            req.user = await hydrateUser(req.session.userId);
+        }
+        next();
+    } catch (err) {
+        next();
+    }
+};
+
+export const requireRole = (...roles) => (req, res, next) => {
+    if (!req.user) {
+        return next(createError(401, "Not authorized"));
+    }
+    if (!roles.includes(req.user.role)) {
+        return next(createError(403, "Insufficient permissions"));
+    }
+    next();
 };

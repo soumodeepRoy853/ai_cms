@@ -1,52 +1,40 @@
 import User from "../models/userModel.js";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
+import { createError } from "../utils/httpErrors.js";
 
-//Custom error with status code
-function createError(status, message){
-    const err = new Error(message);
-    err.status = (status);
-    return err;
+const toSafeUser = (user) => {
+        const safeUser = user.toObject();
+        delete safeUser.password;
+        return safeUser;
 };
-
-//Ensure function to validate inputs
-function ensure(...checks) {
-  for (const [cond, msg] of checks) {
-    if (!cond) throw new Error(msg);
-  }
-}
 
 export const registerUser = async(userData) => {
     try {
-       const {userName, email, phone, password} = userData || {};
-       ensure(
-        [userName && typeof userName === "string", "Valid userName is required"],
-        [email && typeof email === "string", "Valid email is required"],
-        [password && typeof password === "string", "Valid password is required"],
-        [phone && typeof phone === "string", "Valid phone is required"]
-       );
+    const {userName, email, phone, password, role} = userData || {};
+       if (!userName) throw createError(400, "User name is required");
+       if (!email) throw createError(400, "Email is required");
+       if (!phone) throw createError(400, "Phone number is required");
+       if (!password) throw createError(400, "Password is required");
 
-       const user = await User.findOne({ email });
-       if(user){
-        createError(400, "User is already exist");
-       };
+       const existingUser = await User.findOne({ $or: [{ email }, { phone }] });
+       if (existingUser) {
+           throw createError(409, "User already exists");
+       }
 
-       const newUser = new User({userName, email, phone, password});
+    const allowRole = process.env.ALLOW_ROLE_ON_REGISTER === "true";
+    const newUser = new User({ userName, email, phone, password, role: allowRole ? role : undefined });
        await newUser.save();
-       return newUser;
-
+       return toSafeUser(newUser);
     } catch (err) {
-        throw createError(400, err.message || "Error creating new user")
+        throw createError(err.status || 400, err.message || "Error creating new user");
     }
 };
 
 export const loginUser = async(loginData) => {
     try {
         const {email, password} = loginData || {};
-        ensure(
-            [email && typeof email === "string", "Valid email is required"],
-            [password && typeof password === "string", "Valid password is required"]
-        );
+        if (!email) throw createError(400, "Email is required");
+        if (!password) throw createError(400, "Password is required");
 
         const user = await User.findOne({ email });
         if(!user){
@@ -56,9 +44,17 @@ export const loginUser = async(loginData) => {
         if(!isMatch){
             throw createError(400, "Invalid credentials");
         };
-        const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES });
-        return {user, token};
+        const token = user.generateJWT();
+        return { user: toSafeUser(user), token };
     } catch (err) {
-        throw createError(400, err.message || "Error logging in user")
+        throw createError(err.status || 400, err.message || "Error logging in user");
     }
+};
+
+export const getUserById = async (userId) => {
+    const user = await User.findById(userId);
+    if (!user) {
+        throw createError(404, "User not found");
+    }
+    return toSafeUser(user);
 };
